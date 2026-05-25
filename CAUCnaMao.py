@@ -15,6 +15,7 @@ Requisitos:
 import os
 import sys
 import time
+import random
 import requests
 import subprocess
 
@@ -26,6 +27,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+except ImportError:
+    print("Dependencia faltando. Execute: pip install selenium webdriver-manager undetected-chromedriver requests")
+    sys.exit(1)
+
 
 URL            = "https://cauc.tesouro.gov.br/ng/#/extrato/ente/filtro"
 URL_PDF        = "https://cauc.tesouro.gov.br/ng/extrato-cauc/pdfa"
@@ -34,7 +41,7 @@ CNPJ_ALVO      = "07.598.634/0001-37"
 CIDADE_ALVO    = "Sobral"
 ID_EXTRATO     = "1"
 ID_ENTE        = "1083"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 PASTA_DOWNLOAD = BASE_DIR
 VERSAO_CHROME  = 147
 NOME_ARQUIVO   = "CAUC_Extrato_Sobral_CE.pdf"
@@ -47,8 +54,32 @@ def criar_driver() -> uc.Chrome:
 
     options = uc.ChromeOptions()
     options.add_argument("--start-maximized")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--lang=pt-BR")
+    options.add_argument("--window-size=1366,768")
+    options.add_argument(
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    )
 
     driver = uc.Chrome(options=options, version_main=VERSAO_CHROME)
+
+    # Remove propriedades que denunciam automação
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": """
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'plugins',   { get: () => [1, 2, 3, 4, 5] });
+            Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en'] });
+            window.chrome = { runtime: {} };
+        """
+    })
+
     print(f"    Chrome aberto (undetected v{VERSAO_CHROME}).")
     return driver
 
@@ -66,13 +97,37 @@ def aguardar_angular(driver, timeout=15):
     time.sleep(1)
 
 
+def simular_comportamento_humano(driver):
+    """Movimentos de mouse e pausas aleatórias para parecer humano."""
+    try:
+        action = ActionChains(driver)
+        body   = driver.find_element(By.TAG_NAME, "body")
+
+        for _ in range(random.randint(3, 6)):
+            x = random.randint(-200, 200)
+            y = random.randint(-100, 100)
+            action.move_to_element_with_offset(body, x, y)
+            action.pause(random.uniform(0.2, 0.6))
+
+        action.perform()
+        time.sleep(random.uniform(1.0, 2.5))
+    except Exception:
+        pass
+
+
 def digitar_no_input(driver, elemento, texto):
+    """Digita letra por letra com pausas aleatórias para simular humano."""
     try:
         elemento.click()
-        time.sleep(0.4)
+        time.sleep(random.uniform(0.3, 0.7))
         elemento.send_keys(Keys.CONTROL + "a")
-        elemento.send_keys(texto)
-        time.sleep(1.2)
+        time.sleep(0.2)
+
+        for char in texto:
+            elemento.send_keys(char)
+            time.sleep(random.uniform(0.08, 0.25))
+
+        time.sleep(random.uniform(1.0, 2.0))
         if (elemento.get_attribute("value") or "").strip():
             return True
     except Exception:
@@ -98,6 +153,8 @@ def passo_1_abrir_site(driver):
     print("\n[1/4] Abrindo o portal CAUC...")
     driver.get(URL)
     aguardar_angular(driver, timeout=20)
+    # Pequena pausa humana após carregar a página
+    time.sleep(random.uniform(1.5, 3.0))
     print("    OK - Pagina carregada.")
 
 
@@ -109,12 +166,15 @@ def passo_2_buscar_e_selecionar_sobral(driver):
     )
     aguardar_angular(driver)
 
+    # Simula comportamento humano antes de interagir
+    simular_comportamento_humano(driver)
+
     campo = WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='text']"))
     )
 
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", campo)
-    time.sleep(0.5)
+    time.sleep(random.uniform(0.4, 0.8))
 
     if not digitar_no_input(driver, campo, BUSCA_TEXTO):
         raise RuntimeError("Nao foi possivel digitar no campo de busca.")
@@ -122,7 +182,6 @@ def passo_2_buscar_e_selecionar_sobral(driver):
     print(f"    '{BUSCA_TEXTO}' digitado. Aguardando opcoes...")
     time.sleep(2)
 
-    # Seleciona Sobral na lista
     xpaths = [
         f"//mat-option[contains(., '{CNPJ_ALVO}')]",
         f"//mat-option[contains(., '{CIDADE_ALVO}')]",
@@ -144,20 +203,23 @@ def passo_2_buscar_e_selecionar_sobral(driver):
         raise RuntimeError(f"Opcao '{CIDADE_ALVO}' nao apareceu na lista.")
 
     driver.execute_script("arguments[0].scrollIntoView(true);", opcao)
-    time.sleep(0.3)
+    time.sleep(random.uniform(0.3, 0.7))
+
+    # Simula movimento do mouse até a opção antes de clicar
+    simular_comportamento_humano(driver)
     opcao.click()
+
     print(f"    OK - '{CIDADE_ALVO}' selecionado.")
-    time.sleep(2)
+    time.sleep(random.uniform(1.5, 2.5))
 
 
 def passo_3_resolver_hcaptcha(driver):
     """
-    Entra no iframe do hCaptcha, clica no checkbox e captura o token
-    gerado no campo hcaptcha-response do DOM principal.
+    Entra no iframe do hCaptcha, clica no checkbox e captura o token.
+    Aguarda até 60s para permitir resolução manual do desafio visual.
     """
     print("\n[3/4] Resolvendo hCaptcha...")
 
-    # Aguarda o iframe do hCaptcha aparecer
     try:
         WebDriverWait(driver, 15).until(
             EC.frame_to_be_available_and_switch_to_it(
@@ -172,17 +234,24 @@ def passo_3_resolver_hcaptcha(driver):
     checkbox = WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, "#checkbox"))
     )
+
     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox)
-    time.sleep(1)
-    driver.execute_script("arguments[0].click();", checkbox)
-    time.sleep(3)  # aguarda o token ser gerado
+    time.sleep(random.uniform(0.8, 1.5))
+
+    # Move o mouse até o checkbox antes de clicar (mais humano)
+    ActionChains(driver)\
+        .move_to_element(checkbox)\
+        .pause(random.uniform(0.3, 0.7))\
+        .click()\
+        .perform()
 
     driver.switch_to.default_content()
-    print("    Checkbox clicado. Aguardando token...")
+    print("    Checkbox clicado. Aguardando token (ate 60s)...")
+    print("    >> Se aparecer desafio visual, resolva manualmente. <<")
 
-    # Captura o token gerado pelo hCaptcha no campo oculto do DOM
+    # Aguarda até 60 segundos (tempo para resolver desafio manual se necessário)
     token = None
-    for _ in range(20):
+    for i in range(120):
         try:
             token = driver.execute_script(
                 "return document.querySelector('[name=\"h-captcha-response\"]')"
@@ -194,12 +263,15 @@ def passo_3_resolver_hcaptcha(driver):
                 break
         except Exception:
             pass
+
+        if i % 10 == 0 and i > 0:
+            print(f"    Aguardando... ({i // 2}s)")
         time.sleep(0.5)
 
     if not token:
         raise RuntimeError(
             "Token hCaptcha nao foi gerado.\n"
-            "O captcha pode ter exigido desafio visual — tente novamente."
+            "Tente novamente e resolva o desafio visual se aparecer."
         )
 
     print(f"    OK - Token capturado! ({len(token)} chars)")
@@ -211,16 +283,17 @@ def passo_4_baixar_pdf(token: str):
     print("\n[4/4] Baixando PDF via requests...")
 
     params = {
-        "idExtrato":       ID_EXTRATO,
-        "idEnte":          ID_ENTE,
+        "idExtrato":        ID_EXTRATO,
+        "idEnte":           ID_ENTE,
         "hCaptchaResponse": token,
     }
 
     headers = {
-        "Accept":          "application/pdf",
-        "Referer":         "https://cauc.tesouro.gov.br/",
-        "User-Agent":      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                           "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept":     "application/pdf",
+        "Referer":    "https://cauc.tesouro.gov.br/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/131.0.0.0 Safari/537.36",
     }
 
     resp = requests.get(URL_PDF, params=params, headers=headers, timeout=30)
@@ -238,7 +311,7 @@ def passo_4_baixar_pdf(token: str):
         )
 
     # Tenta usar o nome do arquivo do header Content-Disposition
-    cd = resp.headers.get("content-disposition", "")
+    cd   = resp.headers.get("content-disposition", "")
     nome = NOME_ARQUIVO
     if "filename" in cd:
         import urllib.parse
@@ -253,8 +326,8 @@ def passo_4_baixar_pdf(token: str):
     print(f"\n    SUCESSO! PDF salvo em:")
     print(f"    {caminho}")
     print(f"    Tamanho: {len(resp.content) / 1024:.1f} KB")
-    
-# ── Abre o PDF com o visualizador padrão do sistema ──
+
+    # ── Abre o PDF com o visualizador padrão do sistema ──
     print("\n    Abrindo o PDF...")
     try:
         if sys.platform.startswith("win"):
@@ -281,7 +354,10 @@ def main():
         passo_1_abrir_site(driver)
         passo_2_buscar_e_selecionar_sobral(driver)
         token = passo_3_resolver_hcaptcha(driver)
-        driver.quit()  # navegador nao e mais necessario
+        try:
+            driver.quit()
+        except Exception:
+            pass
         print("\n    Navegador encerrado. Baixando PDF...")
         passo_4_baixar_pdf(token)
         print("\nConcluido!")
