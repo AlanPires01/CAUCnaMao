@@ -35,7 +35,7 @@ ID_EXTRATO     = "1"
 ID_ENTE        = "1083"
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 PASTA_DOWNLOAD = BASE_DIR
-VERSAO_CHROME  = 147
+VERSAO_CHROME  = 131
 NOME_ARQUIVO   = "CAUC_Extrato_Sobral_CE.pdf"
 
 ROXO    = "#534AB7"
@@ -261,22 +261,40 @@ def passo_2_buscar_e_selecionar_sobral(driver):
 
 def passo_3_resolver_hcaptcha(driver):
     print("\n[3/4] Resolvendo hCaptcha...")
+
+    # Aguarda o iframe aparecer no DOM
     try:
         WebDriverWait(driver, 15).until(
-            EC.frame_to_be_available_and_switch_to_it(
+            EC.presence_of_element_located(
                 (By.CSS_SELECTOR, "iframe[src*='hcaptcha']")
             )
         )
     except TimeoutException:
         raise RuntimeError("Iframe do hCaptcha nao encontrado.")
 
-    print("    Iframe encontrado. Clicando no checkbox...")
-    checkbox = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "#checkbox"))
+    # Rola até o iframe para tirar o header do caminho
+    iframe_externo = driver.find_element(By.CSS_SELECTOR, "iframe[src*='hcaptcha']")
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center', inline: 'center'});",
+        iframe_externo
     )
-    checkbox.click()
-    time.sleep(3)
+    time.sleep(1.5)
 
+    # Entra no iframe
+    driver.switch_to.frame(iframe_externo)
+    print("    Iframe encontrado. Clicando no checkbox...")
+
+    checkbox = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "#checkbox"))
+    )
+
+    # Tenta clique normal primeiro; se falhar, usa JavaScript
+    try:
+        checkbox.click()
+    except Exception:
+        driver.execute_script("arguments[0].click();", checkbox)
+
+    time.sleep(3)
     driver.switch_to.default_content()
     print("    Checkbox clicado. Aguardando token...")
 
