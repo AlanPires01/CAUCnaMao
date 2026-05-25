@@ -43,7 +43,7 @@ ID_EXTRATO     = "1"
 ID_ENTE        = "1083"
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 PASTA_DOWNLOAD = BASE_DIR
-VERSAO_CHROME  = 147
+VERSAO_CHROME  =  131
 NOME_ARQUIVO   = "CAUC_Extrato_Sobral_CE.pdf"
 
 
@@ -56,29 +56,15 @@ def criar_driver() -> uc.Chrome:
     options.add_argument("--start-maximized")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--lang=pt-BR")
-    options.add_argument("--window-size=1366,768")
-    options.add_argument(
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    )
+    # ✅ Sem --disable-gpu, --disable-extensions, --disable-infobars
+    # ✅ Sem --disable-blink-features=AutomationControlled (o uc já cuida disso)
+    # ✅ Sem --user-agent manual (deixa o Chrome definir o próprio)
+    # ✅ Sem --window-size fixo (deixa --start-maximized agir)
 
     driver = uc.Chrome(options=options, version_main=VERSAO_CHROME)
 
-    # Remove propriedades que denunciam automação
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": """
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins',   { get: () => [1, 2, 3, 4, 5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en'] });
-            window.chrome = { runtime: {} };
-        """
-    })
+    # ❌ REMOVER o execute_cdp_cmd com o script de navigator.webdriver
+    # Ele paradoxalmente DENUNCIA automação ao redefinir a propriedade
 
     print(f"    Chrome aberto (undetected v{VERSAO_CHROME}).")
     return driver
@@ -214,10 +200,6 @@ def passo_2_buscar_e_selecionar_sobral(driver):
 
 
 def passo_3_resolver_hcaptcha(driver):
-    """
-    Entra no iframe do hCaptcha, clica no checkbox e captura o token.
-    Aguarda até 60s para permitir resolução manual do desafio visual.
-    """
     print("\n[3/4] Resolvendo hCaptcha...")
 
     try:
@@ -235,23 +217,14 @@ def passo_3_resolver_hcaptcha(driver):
         EC.element_to_be_clickable((By.CSS_SELECTOR, "#checkbox"))
     )
 
-    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox)
-    time.sleep(random.uniform(0.8, 1.5))
-
-    # Move o mouse até o checkbox antes de clicar (mais humano)
-    ActionChains(driver)\
-        .move_to_element(checkbox)\
-        .pause(random.uniform(0.3, 0.7))\
-        .click()\
-        .perform()
+    checkbox.click()
+    time.sleep(3)
 
     driver.switch_to.default_content()
-    print("    Checkbox clicado. Aguardando token (ate 60s)...")
-    print("    >> Se aparecer desafio visual, resolva manualmente. <<")
+    print("    Checkbox clicado. Aguardando token...")
 
-    # Aguarda até 60 segundos (tempo para resolver desafio manual se necessário)
     token = None
-    for i in range(120):
+    for _ in range(20):
         try:
             token = driver.execute_script(
                 "return document.querySelector('[name=\"h-captcha-response\"]')"
@@ -263,16 +236,10 @@ def passo_3_resolver_hcaptcha(driver):
                 break
         except Exception:
             pass
-
-        if i % 10 == 0 and i > 0:
-            print(f"    Aguardando... ({i // 2}s)")
         time.sleep(0.5)
 
     if not token:
-        raise RuntimeError(
-            "Token hCaptcha nao foi gerado.\n"
-            "Tente novamente e resolva o desafio visual se aparecer."
-        )
+        raise RuntimeError("Token hCaptcha nao foi gerado.")
 
     print(f"    OK - Token capturado! ({len(token)} chars)")
     return token
