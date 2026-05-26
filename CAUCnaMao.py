@@ -31,7 +31,7 @@ ID_EXTRATO     = "1"
 ID_ENTE        = "1083"
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 PASTA_DOWNLOAD = BASE_DIR
-VERSAO_CHROME  = 131
+VERSAO_CHROME  = 147
 NOME_ARQUIVO   = "CAUC_Extrato_Sobral_CE.pdf"
 
 ROXO    = "#534AB7"
