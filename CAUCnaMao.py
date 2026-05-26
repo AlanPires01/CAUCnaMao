@@ -1,7 +1,3 @@
-"""
-Script para baixar o Extrato CAUC de Sobral/CE.
-"""
-
 import os
 import sys
 import time
@@ -35,7 +31,7 @@ ID_EXTRATO     = "1"
 ID_ENTE        = "1083"
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 PASTA_DOWNLOAD = BASE_DIR
-VERSAO_CHROME  = 147
+VERSAO_CHROME  = 131
 NOME_ARQUIVO   = "CAUC_Extrato_Sobral_CE.pdf"
 
 ROXO    = "#534AB7"
@@ -51,7 +47,10 @@ class SplashCAUC:
         self.root.title("CAUCnaMão")
         self.root.configure(bg=FUNDO)
         self.root.resizable(False, False)
-        self.root.overrideredirect(True)
+
+        # ── SEM overrideredirect: janela normal do SO ──────────
+        # Fica na barra de tarefas, pode ser sobreposta e minimizada
+        self.root.attributes("-topmost", False)
 
         self._centralizar(600, 350)
         self._build()
@@ -74,7 +73,6 @@ class SplashCAUC:
             try:
                 img_raw = tk.PhotoImage(file=logo_path)
 
-                # Calcula zoom/subsample para chegar em 85x63
                 orig_w = img_raw.width()
                 orig_h = img_raw.height()
 
@@ -116,7 +114,7 @@ class SplashCAUC:
         self.canvas_spin.itemconfig(self.arco, start=angulo)
         self._anim_id = self.root.after(30, self._animar_spinner, (angulo - 10) % 360)
 
-    def fechar(self, delay_ms=1500):
+    def fechar(self, delay_ms=500):
         self.root.after(delay_ms, self._destruir)
 
     def _destruir(self):
@@ -262,39 +260,23 @@ def passo_2_buscar_e_selecionar_sobral(driver):
 def passo_3_resolver_hcaptcha(driver):
     print("\n[3/4] Resolvendo hCaptcha...")
 
-    # Aguarda o iframe aparecer no DOM
     try:
         WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located(
+            EC.frame_to_be_available_and_switch_to_it(
                 (By.CSS_SELECTOR, "iframe[src*='hcaptcha']")
             )
         )
     except TimeoutException:
         raise RuntimeError("Iframe do hCaptcha nao encontrado.")
 
-    # Rola até o iframe para tirar o header do caminho
-    iframe_externo = driver.find_element(By.CSS_SELECTOR, "iframe[src*='hcaptcha']")
-    driver.execute_script(
-        "arguments[0].scrollIntoView({block: 'center', inline: 'center'});",
-        iframe_externo
-    )
-    time.sleep(1.5)
-
-    # Entra no iframe
-    driver.switch_to.frame(iframe_externo)
     print("    Iframe encontrado. Clicando no checkbox...")
 
     checkbox = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "#checkbox"))
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "#checkbox"))
     )
-
-    # Tenta clique normal primeiro; se falhar, usa JavaScript
-    try:
-        checkbox.click()
-    except Exception:
-        driver.execute_script("arguments[0].click();", checkbox)
-
+    checkbox.click()
     time.sleep(3)
+
     driver.switch_to.default_content()
     print("    Checkbox clicado. Aguardando token...")
 
@@ -386,28 +368,37 @@ def main():
 
     splash = SplashCAUC()
 
-    def executar():
-        splash.fechar(delay_ms=2000)
+    resultado = {"token": None, "erro": None}
 
+    def executar():
         driver = None
         try:
             driver = criar_driver()
             passo_1_abrir_site(driver)
             passo_2_buscar_e_selecionar_sobral(driver)
-            token = passo_3_resolver_hcaptcha(driver)
-            try: driver.quit()
-            except Exception: pass
-            passo_4_baixar_pdf(token)
-
+            resultado["token"] = passo_3_resolver_hcaptcha(driver)
         except Exception as e:
-            print(f"\n  ERRO: {e}")
-            try: driver.quit()
-            except Exception: pass
+            resultado["erro"] = e
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+            splash.fechar(delay_ms=500)
 
-    t = threading.Thread(target=executar, daemon=False)  # ← daemon=False
+    t = threading.Thread(target=executar, daemon=True)
     t.start()
-    splash.iniciar()  # trava até a splash fechar (2s)
-    t.join()          # ← aguarda o script terminar antes de sair
+    splash.iniciar()  # bloqueia até splash.fechar() ser chamado pela thread
+    t.join()
+
+    if resultado["erro"]:
+        print(f"\n  ERRO: {resultado['erro']}")
+        sys.exit(1)
+
+    passo_4_baixar_pdf(resultado["token"])
+    print("\nConcluido!")
+
 
 if __name__ == "__main__":
     main()
