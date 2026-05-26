@@ -261,34 +261,54 @@ def passo_3_resolver_hcaptcha(driver):
     print("\n[3/4] Resolvendo hCaptcha...")
 
     try:
-        WebDriverWait(driver, 15).until(
-            EC.frame_to_be_available_and_switch_to_it(
+        iframe = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located(
                 (By.CSS_SELECTOR, "iframe[src*='hcaptcha']")
             )
         )
     except TimeoutException:
         raise RuntimeError("Iframe do hCaptcha nao encontrado.")
 
+    # ── Scroll até o iframe para tirar o header da frente ──
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
+        iframe
+    )
+    time.sleep(1.5)
+
+    # ── Agora entra no iframe ──────────────────────────────
+    driver.switch_to.frame(iframe)
     print("    Iframe encontrado. Clicando no checkbox...")
 
     checkbox = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, "#checkbox"))
+        EC.presence_of_element_located((By.CSS_SELECTOR, "#checkbox"))
     )
-    checkbox.click()
-    time.sleep(3)
 
+    # Tenta clique normal; se interceptado, usa JS
+    try:
+        ActionChains(driver)\
+            .move_to_element(checkbox)\
+            .pause(random.uniform(0.3, 0.6))\
+            .click()\
+            .perform()
+    except Exception:
+        driver.execute_script("arguments[0].click();", checkbox)
+
+    time.sleep(3)
     driver.switch_to.default_content()
     print("    Checkbox clicado. Aguardando token...")
 
+    # ── Polling pelo token ─────────────────────────────────
     token = None
-    for _ in range(20):
+    for _ in range(30):          # até 15 segundos
         try:
-            token = driver.execute_script(
-                "return document.querySelector('[name=\"h-captcha-response\"]')"
-                "?.value || "
-                "document.querySelector('[name=\"hcaptcha-response\"]')"
-                "?.value || '';"
-            )
+            token = driver.execute_script("""
+                return (
+                    document.querySelector('[name="h-captcha-response"]')?.value ||
+                    document.querySelector('[name="hcaptcha-response"]')?.value ||
+                    ''
+                );
+            """)
             if token and len(token) > 20:
                 break
         except Exception:
@@ -296,7 +316,10 @@ def passo_3_resolver_hcaptcha(driver):
         time.sleep(0.5)
 
     if not token:
-        raise RuntimeError("Token hCaptcha nao foi gerado.")
+        raise RuntimeError(
+            "Token hCaptcha nao foi gerado. "
+            "O captcha pode ter exigido desafio visual — tente novamente."
+        )
 
     print(f"    OK - Token capturado! ({len(token)} chars)")
     return token
